@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Cas2Audio</string>
+    <string name="app_name">CAS2AudioIT</string>
     <string name="lbl_mono">Mono</string>
     <string name="lbl_48kHz">48 kHz</string>
     <string name="lbl_square">Fala kwadratowa (turbo)</string>
@@ -33,7 +33,7 @@
     <string name="cd_about">O aplikacji</string>
     <string name="cd_pause">wstrzymaj</string>
 
-    <string name="toast_about">CAS2Audio utworzone przez BAKTRA Software</string>
+    <string name="toast_about">CAS2AudioIT na bazie CAS2Audio autorstwa BAKTRA Software</string>
     <string name="clear_recents">Wyczyść ostatnie</string>
     <string name="lbl_c2a_audio_output">Wyjście audio CAS2Audio</string>
 

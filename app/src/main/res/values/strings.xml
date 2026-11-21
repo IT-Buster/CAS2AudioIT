@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Cas2Audio</string>
+    <string name="app_name">CAS2AudioIT</string>
     <string name="lbl_square">Square waveform (turbo)</string>
     <string name="lbl_mono">Mono</string>
     <string name="lbl_48kHz">48 kHz</string>
@@ -31,7 +31,7 @@
     <string name="cd_about">About</string>
     <string name="cd_pause">Pause</string>
 
-    <string name="toast_about">CAS2Audio by BAKTRA Software</string>
+    <string name="toast_about">CAS2AudioIT, based on CAS2Audio by BAKTRA Software</string>
     <string name="clear_recents">Clear recents</string>
     <string name="lbl_c2a_audio_output">CAS2Audio Audio Output</string>
     <string name="exit">Exit</string>

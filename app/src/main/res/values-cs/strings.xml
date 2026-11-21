@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Cas2Audio</string>
+    <string name="app_name">CAS2AudioIT</string>
     <string name="lbl_square">Obdélníkový signál (turbo)</string>
     <string name="lbl_mono">Mono</string>
     <string name="lbl_48kHz">48 kHz</string>
@@ -31,7 +31,7 @@
     <string name="cd_cassette">Kazeta</string>
     <string name="cd_about">O Aplikaci</string>
     <string name="cd_pause">Pozastavit</string>
-    <string name="toast_about">CAS2Audio od BAKTRA Software</string>
+    <string name="toast_about">CAS2AudioIT vychází z CAS2Audio od BAKTRA Software</string>
     <string name="clear_recents">Vymazat poslední</string>
     <string name="lbl_c2a_audio_output">CAS2Audio Audio Výstup</string>
 

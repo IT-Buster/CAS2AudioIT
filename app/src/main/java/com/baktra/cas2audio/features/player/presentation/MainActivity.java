@@ -103,9 +103,6 @@ public class MainActivity extends AppCompatActivity {
         viewModel = new ViewModelProvider(this, factory).get(MainViewModel.class);
         setupModelObservers();
 
-        /*Set the title*/
-        setTitle("CAS2Audio 1.0.0");
-
         /*Initialize launchers*/
         initializeLaunchers();
         launchPlaylistFiles = registerForActivityResult(

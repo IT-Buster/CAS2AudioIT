@@ -5,13 +5,13 @@ apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 android {
 
     defaultConfig {
-        applicationId="com.baktra.cas2audio"
+        applicationId="com.itbuster.cas2audioit"
         minSdk 31
         compileSdk = 34
         /*targetSdkVersion(30)*/
-        versionName= '1.0.0'
+        versionName= '1.0.1'
         testInstrumentationRunner="androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 112
+        versionCode = 113
         //noinspection ExpiredTargetSdkVersion, OldTargetApi
         targetSdk 31
     }
