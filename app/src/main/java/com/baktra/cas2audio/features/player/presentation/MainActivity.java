@@ -12,6 +12,9 @@ import android.graphics.drawable.AnimationDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -41,6 +44,9 @@ import com.baktra.cas2audio.features.player.domain.tapeimage.TapeImageOpener;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Optional;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -59,6 +65,11 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<Intent> launchGoldies;
 
     private AlertDialog alertDialog;
+    private AlertDialog playlistDialog;
+    private AlertDialog playlistEntryDialog;
+    private ActivityResultLauncher<String[]> launchPlaylistFiles;
+    private TextView playlistSummary;
+    private ListView playlistRows;
 
     public MainActivity() {
         super();
@@ -93,10 +104,16 @@ public class MainActivity extends AppCompatActivity {
         setupModelObservers();
 
         /*Set the title*/
-        setTitle("CAS2Audio 1.1.1");
+        setTitle("CAS2Audio 1.0.0");
 
         /*Initialize launchers*/
         initializeLaunchers();
+        launchPlaylistFiles = registerForActivityResult(
+                new ActivityResultContracts.OpenMultipleDocuments(), this::processPlaylistFiles);
+        viewModel.getPlaylistLoading().observe(this, loading -> refreshPlaylist());
+        if (savedInstanceState != null && savedInstanceState.getBoolean("playlist_open")) {
+            onPlaylist(null);
+        }
     }
 
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -105,6 +122,9 @@ public class MainActivity extends AppCompatActivity {
         inflater.inflate(R.menu.main_menu, menu);
         MenuItem mi1 = menu.findItem(R.id.miSettings);
         MenuItem mi2 = menu.findItem(R.id.miGoldies);
+        MenuItem playlistItem = menu.findItem(R.id.miPlaylist);
+        playBackMenuItemsDisabled.add(playlistItem);
+        playlistItem.setEnabled(!viewModel.isPlaying());
         playBackMenuItemsDisabled.add(mi1);
         playBackMenuItemsDisabled.add(mi2);
 
@@ -128,7 +148,15 @@ public class MainActivity extends AppCompatActivity {
         super.onPause();
     }
 
+    protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putBoolean("playlist_open", playlistDialog != null && playlistDialog.isShowing());
+    }
+
+    @Override
     protected void onDestroy() {
+        if (playlistEntryDialog != null) playlistEntryDialog.dismiss();
+        if (playlistDialog != null) playlistDialog.dismiss();
         closeOptionsMenu();
         if (alertDialog!=null && alertDialog.isShowing()) {
             alertDialog.dismiss();
@@ -213,15 +241,23 @@ public class MainActivity extends AppCompatActivity {
                     playbackChanged=true;
                 }
 
+                TapeImageCrate tape = newState.getCurrentTapeImageCrate();
+                TextView tapeName = findViewById(R.id.tvTapeImageName);
+                int queueSize = viewModel.getPlaylistPlaybackSize();
+                String name = tape == null ? "" : tape.getFileName();
+                if (tape != null && queueSize > 0) {
+                    name = getString(R.string.playlist_now_playing,
+                            viewModel.getPlaylistPlaybackPosition(), queueSize, name);
+                }
+                if (!android.text.TextUtils.equals(tapeName.getText(), name)) {
+                    tapeName.setText(name);
+                }
+
                 /*Handle tape image opened, not opened*/
                 if (oldCrate.isEmpty() || oldCrate.get()!=newState.getCurrentTapeImageCrate()) {
                     if (newState.getPlayerState() == MainViewModel.PlayerState.TAPE_READY || newState.getPlayerState() == MainViewModel.PlayerState.PLAYING) {
-                        TextView tv = findViewById(R.id.tvTapeImageName);
-                        tv.setText(newState.getCurrentTapeImageCrate().getFileName());
                         setChunkDisplay(newState.getCurrentTapeImageCrate().getConvCrate().getResumePoints());
                     } else {
-                        TextView tv = findViewById(R.id.tvTapeImageName);
-                        tv.setText("");
                         setChunkDisplay(new ArrayList<>());
                     }
                     oldCrate=Optional.ofNullable(newState.getCurrentTapeImageCrate());
@@ -516,6 +552,181 @@ public class MainActivity extends AppCompatActivity {
 
         alertDialog = builder.create();
         alertDialog.show();
+    }
+
+    public void onPlaylist(MenuItem item) {
+        if (viewModel.isPlaying() || playlistDialog != null) return;
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int padding = Math.round(24 * getResources().getDisplayMetrics().density);
+        content.setPadding(padding, 0, padding, 0);
+
+        LinearLayout fields = new LinearLayout(this);
+        content.addView(fields);
+        addPlaylistNumberField(fields, R.string.playlist_limit, viewModel.playlistLimitMinutes, value -> {
+            viewModel.playlistLimitMinutes = value;
+            updatePlaylistSummary();
+        });
+        addPlaylistNumberField(fields, R.string.playlist_gap, viewModel.playlistGapSeconds, value -> {
+            viewModel.playlistGapSeconds = value;
+            updatePlaylistSummary();
+        });
+
+        playlistSummary = new TextView(this);
+        playlistSummary.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        content.addView(playlistSummary);
+
+        playlistRows = new ListView(this);
+        playlistRows.setOnItemClickListener((parent, view, position, id) -> editPlaylistEntry(position));
+        int rowsHeightDp = Math.min(240, getResources().getConfiguration().screenHeightDp / 3);
+        int rowsHeight = Math.round(rowsHeightDp * getResources().getDisplayMetrics().density);
+        content.addView(playlistRows, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, rowsHeight));
+
+        content.setFocusableInTouchMode(true);
+        content.requestFocus();
+        playlistDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.playlist_title)
+                .setView(content)
+                .setNeutralButton(R.string.playlist_add, null)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.playlist_play, (dialog, which) -> viewModel.startPlaylist())
+                .create();
+        playlistDialog.setOnDismissListener(dialog -> {
+            playlistDialog = null;
+            playlistSummary = null;
+            playlistRows = null;
+        });
+        playlistDialog.show();
+        playlistDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
+            playlistDialog.dismiss();
+            launchPlaylistFiles.launch(new String[]{"*/*"});
+        });
+        refreshPlaylist();
+    }
+
+    private void addPlaylistNumberField(LinearLayout fields, int labelId, String value,
+                                        Consumer<String> onChange) {
+        LinearLayout field = new LinearLayout(this);
+        field.setOrientation(LinearLayout.VERTICAL);
+        fields.addView(field, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        TextView label = new TextView(this);
+        label.setText(labelId);
+        label.setMinLines(2);
+        field.addView(label);
+
+        EditText input = new EditText(this);
+        input.setId(View.generateViewId());
+        label.setLabelFor(input.getId());
+        input.setSingleLine();
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(value);
+        input.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {
+                onChange.accept(text.toString());
+            }
+            @Override public void afterTextChanged(Editable text) {}
+        });
+        field.addView(input);
+    }
+
+    private void processPlaylistFiles(List<Uri> uris) {
+        if (!uris.isEmpty()) {
+            List<String> names = new ArrayList<>();
+            for (Uri uri : uris) {
+                try {
+                    names.add(extractFileNameFromURI(uri));
+                } catch (SecurityException e) {
+                    names.add(uri.getLastPathSegment() == null ? uri.toString() : uri.getLastPathSegment());
+                }
+            }
+            viewModel.addPlaylistFiles(uris, names);
+        }
+        onPlaylist(null);
+    }
+
+    private void refreshPlaylist() {
+        if (playlistDialog == null) return;
+        boolean loading = Boolean.TRUE.equals(viewModel.getPlaylistLoading().getValue());
+        List<MainViewModel.PlaylistEntry> entries = viewModel.getPlaylist();
+        boolean do48kHz = viewModel.getUserSettings().isDo48kHz();
+        int rate = do48kHz ? 48000 : 44100;
+        List<String> rows = new ArrayList<>();
+        for (int i = 0; i < entries.size(); i++) {
+            MainViewModel.PlaylistEntry entry = entries.get(i);
+            rows.add(getString(R.string.playlist_row, i + 1, entry.tape.getFileName(),
+                    formatPlaylistTime(roundUpSeconds(entry.frames(do48kHz), rate))));
+        }
+        playlistRows.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, rows));
+        playlistRows.setEnabled(!loading);
+        playlistDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(!loading);
+        updatePlaylistSummary();
+    }
+
+    private void updatePlaylistSummary() {
+        if (playlistSummary == null) return;
+        int gapSeconds = viewModel.getPlaylistGapSeconds();
+        boolean loading = Boolean.TRUE.equals(viewModel.getPlaylistLoading().getValue());
+        playlistDialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setEnabled(!loading && !viewModel.getPlaylist().isEmpty() && gapSeconds >= 0);
+        if (gapSeconds < 0) {
+            playlistSummary.setText(R.string.playlist_gap_invalid);
+            return;
+        }
+        long seconds = viewModel.getPlaylistDurationSeconds();
+        StringBuilder summary = new StringBuilder(getString(
+                R.string.playlist_total, formatPlaylistTime(seconds)));
+        try {
+            int limit = Integer.parseInt(viewModel.playlistLimitMinutes);
+            if (limit > 0) {
+                long remaining = limit * 60L - seconds;
+                summary.append('\n').append(getString(
+                        remaining >= 0 ? R.string.playlist_remaining : R.string.playlist_over,
+                        formatPlaylistTime(Math.abs(remaining))));
+            }
+        } catch (NumberFormatException ignored) {
+            // The limit can be cleared while editing.
+        }
+        if (loading) {
+            summary.append('\n').append(getString(R.string.playlist_loading));
+        } else if (!viewModel.getUnreadablePlaylistFiles().isEmpty()) {
+            summary.append('\n').append(getString(R.string.playlist_unreadable,
+                    String.join(", ", viewModel.getUnreadablePlaylistFiles())));
+        }
+        playlistSummary.setText(summary);
+    }
+
+    private static long roundUpSeconds(long frames, int sampleRate) {
+        return (frames + sampleRate - 1) / sampleRate;
+    }
+
+    private static String formatPlaylistTime(long seconds) {
+        return String.format(Locale.getDefault(), "%d:%02d", seconds / 60, seconds % 60);
+    }
+
+    private void editPlaylistEntry(int position) {
+        List<MainViewModel.PlaylistEntry> entries = viewModel.getPlaylist();
+        playlistEntryDialog = new AlertDialog.Builder(this)
+                .setTitle(entries.get(position).tape.getFileName())
+                .setNegativeButton(R.string.playlist_remove, (dialog, which) -> {
+                    viewModel.removePlaylistEntry(position);
+                    refreshPlaylist();
+                })
+                .setNeutralButton(R.string.playlist_up, (dialog, which) -> {
+                    viewModel.movePlaylistEntry(position, position - 1);
+                    refreshPlaylist();
+                })
+                .setPositiveButton(R.string.playlist_down, (dialog, which) -> {
+                    viewModel.movePlaylistEntry(position, position + 1);
+                    refreshPlaylist();
+                })
+                .create();
+        playlistEntryDialog.show();
+        playlistEntryDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(position > 0);
+        playlistEntryDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(position + 1 < entries.size());
     }
 
     public void onAbout(MenuItem mi) {

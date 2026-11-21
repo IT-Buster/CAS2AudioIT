@@ -97,6 +97,10 @@ public class DummySignalWriter implements SignalWriter {
         return true;
     }
 
+    void addFrames(long frames) {
+        numSamples += frames;
+    }
+
     @Override
     public long getNumberOfSamples() {
         return numSamples;

@@ -57,7 +57,16 @@ public class TapeImageOpener {
     }
 
     public ReadResult readTapeImage(Uri uri,int[] tapeImageBytes,boolean do48Khz,String fileName) {
-        try  {
+        return readTapeImage(uri, tapeImageBytes, do48Khz, fileName, true);
+    }
+
+    public ReadResult readPlaylistEntry(Uri uri, String fileName) {
+        return readTapeImage(uri, null, false, fileName, false);
+    }
+
+    private ReadResult readTapeImage(Uri uri, int[] tapeImageBytes, boolean do48Khz,
+                                     String fileName, boolean keepPermission) {
+        try {
 
 
             TapeImageFile ti = new TapeImageFile();
@@ -65,7 +74,9 @@ public class TapeImageOpener {
             /*Read from URI*/
             if (uri!=null) {
                 /*Get the permission*/
-                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                if (keepPermission) {
+                    resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }
 
                 /*Open for input stream*/
                 InputStream iStream = resolver.openInputStream(uri);

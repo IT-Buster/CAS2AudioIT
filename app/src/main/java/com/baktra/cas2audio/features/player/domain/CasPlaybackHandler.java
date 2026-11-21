@@ -35,6 +35,7 @@ public class CasPlaybackHandler {
 
     public void removeObserver() {
         this.observer = null;
+        clearTask();
     }
 
     private void clearTask() {
@@ -42,9 +43,8 @@ public class CasPlaybackHandler {
         taskFuture = Optional.empty();
     }
 
-    public void prepare(int[] instructions, boolean stereo, boolean square, int volume, int sampleRate, boolean invertPolarity, int resumeIp) throws Exception {
-
-        this.observer = observer;
+    public void prepare(int[] instructions, boolean stereo, boolean square, int volume, int sampleRate, boolean invertPolarity,
+                        int resumeIp, int leadingSilenceSeconds) throws Exception {
 
         try {
             casTask = Optional.of(new CasTask(
@@ -56,6 +56,7 @@ public class CasPlaybackHandler {
                     sampleRate,
                     invertPolarity,
                     resumeIp,
+                    leadingSilenceSeconds,
                     powerManager
             ));
         } catch (Exception e) {
@@ -82,84 +83,39 @@ public class CasPlaybackHandler {
         ct.cancel(stopReason);
     }
 
-    public void processSuccess() {
-        clearTask();
-        publishPlaybackSuccess();
-    }
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    public void processCancellation(int resumeIp, int stopReason) {
-        clearTask();
-        publishPlaybackCancellation(resumeIp, stopReason);
-    }
-
-    public void processFailure(Throwable e) {
-        clearTask();
-        publishPlaybackFailure(e);
-    }
-
-
-    public void publishProgress(Integer progress, Integer resumeIp) {
-
-        if (observer == null) return;
-
-        Looper mainLooper = Looper.getMainLooper();
-        Handler mainHandler = new Handler(mainLooper);
-
-        mainHandler.post(new Runnable() {
-            public void run() {
-                observer.onProgressUpdate(progress);
-                if (resumeIp != -1) {
-                    observer.onResumePointUpdate(resumeIp);
-                }
-            }
-        });
-
-    }
-
-    public void publishPlaybackFailure(Throwable e) {
-
-        if (observer == null) return;
-
-        Looper mainLooper = Looper.getMainLooper();
-        Handler mainHandler = new Handler(mainLooper);
-
-        mainHandler.post(new Runnable() {
-            public void run() {
-                observer.onFailedPlayback(e);
-            }
-        });
-
-    }
-
-    public void publishPlaybackSuccess() {
-
-
-        if (observer == null) return;
-
-        Looper mainLooper = Looper.getMainLooper();
-        Handler mainHandler = new Handler(mainLooper);
-
-        mainHandler.post(new Runnable() {
-            public void run() {
-                observer.onSuccessfulPlayback();
-            }
-        });
-
-    }
-
-    public void publishPlaybackCancellation(int resumeIp, int stopReason) {
-
-        if (observer == null) return;
-
-        Looper mainLooper = Looper.getMainLooper();
-        Handler mainHandler = new Handler(mainLooper);
-
-        mainHandler.post(new Runnable() {
-            public void run() {
-                observer.onCancelledPlayback(resumeIp, stopReason);
+    void processSuccess(CasTask task) {
+        finish(task, target -> {
+            if (task.isCancelled()) {
+                target.onCancelledPlayback(task.getLastIp(), task.getStopReason());
+            } else {
+                target.onSuccessfulPlayback();
             }
         });
     }
 
+    void processCancellation(CasTask task, int resumeIp, int stopReason) {
+        finish(task, target -> target.onCancelledPlayback(resumeIp, stopReason));
+    }
 
+    void processFailure(CasTask task, Throwable error) {
+        finish(task, target -> target.onFailedPlayback(error));
+    }
+
+    private void finish(CasTask task, java.util.function.Consumer<CasPlaybackObserver> callback) {
+        mainHandler.post(() -> {
+            if (casTask.orElse(null) != task) return;
+            clearTask();
+            if (observer != null) callback.accept(observer);
+        });
+    }
+
+    void publishProgress(CasTask task, int progress, int resumeIp) {
+        mainHandler.post(() -> {
+            if (casTask.orElse(null) != task || observer == null) return;
+            observer.onProgressUpdate(progress);
+            if (resumeIp != -1) observer.onResumePointUpdate(resumeIp);
+        });
+    }
 }

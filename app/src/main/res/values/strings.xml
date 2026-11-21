@@ -43,4 +43,20 @@
     <string name="btn_dismiss">Dismiss</string>
 
 
+    <string name="playlist_title">Playlist</string>
+    <string name="playlist_add">Add CAS</string>
+    <string name="playlist_play">Play all</string>
+    <string name="playlist_limit">Tape side length (min)</string>
+    <string name="playlist_row">%1$d. %2$s · %3$s</string>
+    <string name="playlist_total">Total time: %1$s</string>
+    <string name="playlist_remaining">Time left on side: %1$s</string>
+    <string name="playlist_over">Over the limit by %1$s</string>
+    <string name="playlist_loading">Calculating playback times…</string>
+    <string name="playlist_unreadable">Could not add: %1$s</string>
+    <string name="playlist_remove">Remove</string>
+    <string name="playlist_up">Move up</string>
+    <string name="playlist_down">Move down</string>
+    <string name="playlist_now_playing">%1$d/%2$d - %3$s</string>
+    <string name="playlist_gap">Gap between files (s)</string>
+    <string name="playlist_gap_invalid">Enter a valid gap in seconds.</string>
 </resources>

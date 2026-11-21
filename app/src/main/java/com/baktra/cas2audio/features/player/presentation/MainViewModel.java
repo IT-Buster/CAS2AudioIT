@@ -11,6 +11,13 @@ import androidx.lifecycle.ViewModel;
 
 import com.baktra.cas2audio.features.player.domain.CasPlaybackHandler;
 import com.baktra.cas2audio.features.player.domain.CasPlaybackObserver;
+import com.baktra.cas2audio.features.player.domain.signal.SignalGenerator;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import com.baktra.cas2audio.features.recent.domain.TapeImageRecents;
 import com.baktra.cas2audio.features.settings.repository.SettingsRepository;
 import com.baktra.cas2audio.features.settings.domain.UserSettings;
@@ -25,6 +32,132 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     private SettingsRepository settingsRepository;
     private TapeImageOpener tapeImageOpener;
     private final CasPlaybackHandler casPlaybackHandler;
+
+    static final class PlaylistEntry {
+        final TapeImageCrate tape;
+        final long frames44100;
+        final long frames48000;
+
+        PlaylistEntry(TapeImageCrate tape) throws Exception {
+            this.tape = tape;
+            int[] instructions = tape.getConvCrate().getInstructions();
+            frames44100 = SignalGenerator.countFrames(instructions, 44100);
+            frames48000 = SignalGenerator.countFrames(instructions, 48000);
+        }
+
+        long frames(boolean do48kHz) {
+            return do48kHz ? frames48000 : frames44100;
+        }
+    }
+
+    private final List<PlaylistEntry> playlist = new ArrayList<>();
+    private final List<String> unreadableFiles = new ArrayList<>();
+    private final MutableLiveData<Boolean> playlistLoading = new MutableLiveData<>(false);
+    private final ExecutorService playlistLoader = Executors.newSingleThreadExecutor();
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private List<PlaylistEntry> playbackQueue = Collections.emptyList();
+    private int playlistPosition;
+    private int playbackGapSeconds;
+    private boolean gapPending;
+    private boolean cleared;
+    String playlistLimitMinutes = "30";
+    String playlistGapSeconds = "0";
+
+    int getPlaylistGapSeconds() {
+        if (playlistGapSeconds.isEmpty()) return 0;
+        try {
+            return Math.max(-1, Integer.parseInt(playlistGapSeconds));
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    long getPlaylistDurationSeconds() {
+        boolean do48kHz = getUserSettings().isDo48kHz();
+        int sampleRate = do48kHz ? 48000 : 44100;
+        long frames = 0;
+        for (PlaylistEntry entry : playlist) {
+            frames += entry.frames(do48kHz);
+        }
+        long signalSeconds = (frames + sampleRate - 1) / sampleRate;
+        return signalSeconds + Math.max(0, playlist.size() - 1L) * Math.max(0, getPlaylistGapSeconds());
+    }
+
+    List<PlaylistEntry> getPlaylist() {
+        return Collections.unmodifiableList(playlist);
+    }
+
+    List<String> getUnreadablePlaylistFiles() {
+        return Collections.unmodifiableList(unreadableFiles);
+    }
+
+    LiveData<Boolean> getPlaylistLoading() {
+        return playlistLoading;
+    }
+
+    void addPlaylistFiles(List<Uri> uris, List<String> names) {
+        if (isPlaying() || Boolean.TRUE.equals(playlistLoading.getValue())) return;
+        unreadableFiles.clear();
+        playlistLoading.setValue(true);
+        playlistLoader.execute(() -> {
+            List<PlaylistEntry> entries = new ArrayList<>();
+            List<String> failures = new ArrayList<>();
+            for (int i = 0; i < uris.size() && !Thread.currentThread().isInterrupted(); i++) {
+                String name = names.get(i);
+                try {
+                    TapeImageOpener.ReadResult result = tapeImageOpener.readPlaylistEntry(uris.get(i), name);
+                    if (!result.isSuccess()) throw result.getException();
+                    entries.add(new PlaylistEntry(result.getTapeImageCrate()));
+                } catch (Exception e) {
+                    failures.add(name);
+                }
+            }
+            mainHandler.post(() -> {
+                if (cleared) return;
+                playlist.addAll(entries);
+                unreadableFiles.addAll(failures);
+                playlistLoading.setValue(false);
+            });
+        });
+    }
+
+    void movePlaylistEntry(int from, int to) {
+        Collections.swap(playlist, from, to);
+    }
+
+    void removePlaylistEntry(int position) {
+        playlist.remove(position);
+    }
+
+    void startPlaylist() {
+        int gapSeconds = getPlaylistGapSeconds();
+        if (gapSeconds < 0 || playlist.isEmpty() || isPlaying()
+                || Boolean.TRUE.equals(playlistLoading.getValue())) return;
+        playbackGapSeconds = gapSeconds;
+        playbackQueue = new ArrayList<>(playlist);
+        playlistPosition = 0;
+        playPlaylistEntry();
+    }
+
+    int getPlaylistPlaybackSize() {
+        return playbackQueue.size();
+    }
+
+    int getPlaylistPlaybackPosition() {
+        return playlistPosition + 1;
+    }
+
+    private void selectPlaylistEntry(PlayerState state) {
+        gapPending = playlistPosition > 0 && playbackGapSeconds > 0;
+        UIState old = uiState.getValue();
+        uiState.setValue(new UIState(state, 0, 0, 0,
+                playbackQueue.get(playlistPosition).tape, old.chunkListVisible, AlertType.NONE, null));
+    }
+
+    private void playPlaylistEntry() {
+        selectPlaylistEntry(PlayerState.PLAYING);
+        prepareAndPlay();
+    }
 
     enum PlayerState {
         EMPTY,
@@ -116,8 +249,7 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     }
 
     void startPlayback() {
-
-
+        if (isPlaying()) return;
 
         if (uiState.getValue().playerState == PlayerState.EMPTY) {
 
@@ -137,8 +269,11 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
             return;
         }
 
-        try {
+        prepareAndPlay();
+    }
 
+    private void prepareAndPlay() {
+        try {
             UserSettings us = getUserSettings();
             getCasPlaybackHandler().prepare(
                     uiState.getValue().currentTapeImageCrate.getConvCrate().getInstructions(),
@@ -147,7 +282,8 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
                     us.getAmplitude(),
                     us.isDo48kHz() ? 48000 : 44100,
                     us.isDoInvertPolarity(),
-                    uiState.getValue().userSelectedResumePointIp
+                    uiState.getValue().userSelectedResumePointIp,
+                    gapPending ? playbackGapSeconds : 0
             );
         } catch (Exception e) {
 
@@ -211,6 +347,7 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     }
 
     public void onResumePointUpdate(int resumeIp) {
+        gapPending = false;
 
         /*Check if possible*/
         int newResumePoint = calculateResumePoint(resumeIp);
@@ -304,6 +441,16 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
 
 
     public void onSuccessfulPlayback() {
+        if (!playbackQueue.isEmpty()) {
+            playlistPosition++;
+            if (playlistPosition < playbackQueue.size()) {
+                playPlaylistEntry();
+            } else {
+                playlistPosition = 0;
+                selectPlaylistEntry(PlayerState.TAPE_READY);
+            }
+            return;
+        }
 
         UIState oldState = uiState.getValue();
         UIState newState = new UIState
@@ -320,6 +467,11 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     }
 
     public void onCancelledPlayback(int resIp, int stopReason) {
+        if (!playbackQueue.isEmpty() && stopReason != STOP_REASON_PAUSE) {
+            playlistPosition = 0;
+            selectPlaylistEntry(PlayerState.TAPE_READY);
+            return;
+        }
 
         int newResumePoint = 0;
         if (stopReason == STOP_REASON_PAUSE) {
@@ -396,6 +548,8 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     @Override
     public void onCleared() {
         super.onCleared();
+        cleared = true;
+        playlistLoader.shutdownNow();
         savePreferences();
         getCasPlaybackHandler().stop(STOP_REASON_TERMINATE);
         getCasPlaybackHandler().removeObserver();
@@ -432,6 +586,9 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     }
 
     public void openTapeImageFromURI(Uri tapeImageUri, String fileName) {
+        if (isPlaying()) return;
+        playbackQueue = Collections.emptyList();
+        gapPending = false;
 
         /*Open nothing*/
         if (tapeImageUri == null) {
@@ -446,6 +603,9 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     }
 
     public void openTapeImageFromArray(int[] tapeImageBytes, String fileName) {
+        if (isPlaying()) return;
+        playbackQueue = Collections.emptyList();
+        gapPending = false;
 
         if (tapeImageBytes == null) {
             setEmptyState();

@@ -15,6 +15,7 @@ public class CasTask implements Callable<Void> {
     private final int[] instructions;
     private final boolean invertPolarity;
     private final int resumeIp;
+    private final int leadingSilenceSeconds;
     private final Optional<PowerManager> powerManager;
     private Exception lastException;
     private final CasPlaybackHandler handler;
@@ -31,7 +32,8 @@ public class CasTask implements Callable<Void> {
     public static final int WAKELOCK_TIMEOUT = 120 * 60 * 1000;
     private int stopReason;
 
-    public CasTask(int[] instructions, CasPlaybackHandler handler, boolean stereo, boolean square, int volume, int sampleRate, boolean invertPolarity, int resumeIp, Optional<PowerManager> pm) {
+    public CasTask(int[] instructions, CasPlaybackHandler handler, boolean stereo, boolean square, int volume, int sampleRate, boolean invertPolarity, int resumeIp,
+                   int leadingSilenceSeconds, Optional<PowerManager> pm) {
         this.instructions=instructions;
         this.stereo=stereo;
         this.lastException = null;
@@ -42,6 +44,7 @@ public class CasTask implements Callable<Void> {
         this.invertPolarity=invertPolarity;
         this.wakeLock = Optional.empty();
         this.resumeIp=resumeIp;
+        this.leadingSilenceSeconds = leadingSilenceSeconds;
         this.sg=null;
         this.powerManager=pm;
         this.cancelRequest=false;
@@ -71,6 +74,7 @@ public class CasTask implements Callable<Void> {
             sgc.bitsPerSample = 16;
             sgc.doNotModulateStandard = false;
             sgc.initialSilence = 1;
+            sgc.leadingSilenceSeconds = leadingSilenceSeconds;
             sgc.numChannels = (stereo ? 2 : 1);
             sgc.postProcessingString = "";
             sgc.rightChannelOnly = (stereo);
@@ -97,15 +101,15 @@ public class CasTask implements Callable<Void> {
          */
 
         if (lastException != null) {
-            handler.processFailure(lastException);
+            handler.processFailure(this, lastException);
         }
         else if (isCancelled()) {
             int lastIp = 0;
             if (sg!=null) lastIp=sg.getLastIp();
-            handler.processCancellation(lastIp,stopReason);
+            handler.processCancellation(this, lastIp, stopReason);
         }
         else {
-            handler.processSuccess();
+            handler.processSuccess(this);
         }
 
         return null;
@@ -116,14 +120,22 @@ public class CasTask implements Callable<Void> {
 
     /*The handler must ensure that publishing to the UI is done on the main thread*/
     public void setProgress(int statusPercent,int ip) {
-        handler.publishProgress(statusPercent,ip);
+        handler.publishProgress(this, statusPercent, ip);
     }
 
     public void cancel(int stopReason) {
         if (!cancelRequest) {
-            cancelRequest=true;
             this.stopReason=stopReason;
+            cancelRequest=true;
         }
+    }
+
+    int getLastIp() {
+        return sg == null ? 0 : sg.getLastIp();
+    }
+
+    int getStopReason() {
+        return stopReason;
     }
 
     public boolean isCancelled() {

@@ -34,6 +34,7 @@ public class SignalGenerator implements SampleConsumer {
     public static final int FLAG_ORDER_HL = 1;
     private boolean cInvertPolarity;
     private DummySignalWriter dummySignalWriter;
+    private DummySignalWriter sampleCounter;
 
     public int getLastIp() {
         return ip;
@@ -52,6 +53,7 @@ public class SignalGenerator implements SampleConsumer {
         public boolean doNotModulateStandard;
         public int terminalSilence;
         public int initialSilence;
+        public int leadingSilenceSeconds;
 
         public boolean invertPolarity;
         public int resumeIp;
@@ -146,7 +148,8 @@ public class SignalGenerator implements SampleConsumer {
         copyConfiguration();
 
         /*Create signal writers, both real and dummy*/
-        audioSignalWriter = new AudioSignalBufferedWriter(cBits, cChannels, cBufferSize, cSampleRate, cTerminalSilence);
+        audioSignalWriter = sampleCounter != null ? sampleCounter
+                : new AudioSignalBufferedWriter(cBits, cChannels, cBufferSize, cSampleRate, cTerminalSilence, this::isCancelled);
         dummySignalWriter = new DummySignalWriter(cBits, cChannels, cBufferSize, cSampleRate, cTerminalSilence);
 
         /*Prepare writers*/
@@ -177,10 +180,42 @@ public class SignalGenerator implements SampleConsumer {
 
     }
 
+    public static long countFrames(int[] instructions, int sampleRate) throws Exception {
+        SignalGeneratorConfig config = new SignalGeneratorConfig();
+        config.bitsPerSample = 16;
+        config.numChannels = 1;
+        config.signedSamples = true;
+        config.sampleRate = sampleRate;
+        config.waveForm = 0;
+        config.resumeIp = 0;
+        SignalGenerator generator = new SignalGenerator(instructions, config, null);
+        generator.sampleCounter = new DummySignalWriter(16, 1, sampleRate, sampleRate, 0);
+        generator.run();
+        return generator.sampleCounter.getNumberOfSamples();
+    }
+
+    private boolean isCancelled() {
+        return Thread.currentThread().isInterrupted() || (parentTask != null && parentTask.isCancelled());
+    }
+
     public void run() throws Exception {
 
         /*Prepare for output*/
-        prepare();
+        try {
+            prepare();
+            generate();
+            currentSignalWriter.prepareForClose();
+        } finally {
+            if (audioSignalWriter != null) audioSignalWriter.close();
+        }
+    }
+
+    private void generate() throws Exception {
+        // Write the playlist gap to the output even when resuming skips earlier CAS instructions.
+        for (long remaining = asConfig.leadingSilenceSeconds * 10L;
+                remaining > 0 && !isCancelled(); remaining--) {
+            audioSignalWriter.write(SILENCE_SHORT);
+        }
 
         /*Initial signal*/
         for (int k = 0; k < cInitialSilence; k++) {
@@ -191,7 +226,7 @@ public class SignalGenerator implements SampleConsumer {
         ip = 0;
         int op = INSTR_NOP;
 
-        while (op != SignalGenerator.INSTR_END && !parentTask.isCancelled()) {
+        while (op != SignalGenerator.INSTR_END && !isCancelled()) {
 
             /*Did we reach the resume point ?*/
             if (ip == cResumeIp) {
@@ -243,7 +278,7 @@ public class SignalGenerator implements SampleConsumer {
                         generateByte(mem[ip]);
                         /*Update progress and check for cancellation every 512 bytes*/
                         if ((ip & 511) == 0) {
-                            if (parentTask.isCancelled()) break;
+                            if (isCancelled()) break;
                             updateProgress(getStatusPercent(ip), -1,false);
                         }
                         ip++;
@@ -344,7 +379,7 @@ public class SignalGenerator implements SampleConsumer {
 
                             /*Opportunity to cancel every 256 pulses*/
                             if ((j&255)==0) {
-                                if (parentTask.isCancelled()) break pwmc_loop;
+                                if (isCancelled()) break pwmc_loop;
                             }
                             currentSignalWriter.write(pulse);
                         }
@@ -373,7 +408,7 @@ public class SignalGenerator implements SampleConsumer {
 
                         /*Set progress and check cancellation every 512 bytes*/
                         if ((ip & 511) == 0) {
-                            if (parentTask.isCancelled()) break;
+                            if (isCancelled()) break;
                             updateProgress(getStatusPercent(ip), -1,false);
                         }
 
@@ -400,7 +435,7 @@ public class SignalGenerator implements SampleConsumer {
                     high = pwmPolarity == SignalGenerator.FLAG_ORDER_HL;
 
                     /*States*/
-                    for (int i = 0; i < cx && !parentTask.isCancelled(); i++) {
+                    for (int i = 0; i < cx && !isCancelled(); i++) {
                         sampleCount = getPWMLength(mem[ip]);
                         ip++;
                         for (int j = 0; j < sampleCount; j++) {
@@ -439,19 +474,6 @@ public class SignalGenerator implements SampleConsumer {
         }
 
 
-        /*Generator canceled*/
-        if (parentTask.isCancelled()) {
-            currentSignalWriter.prepareForClose();
-            currentSignalWriter.close();
-        }
-        /*Generator ended normally*/
-        else {
-            currentSignalWriter.prepareForTerminationSignal(SILENCE_SHORT);
-            currentSignalWriter.prepareForClose();
-            currentSignalWriter.close();
-        }
-
-        /*Everything OK*/
     }
 
     private void generatePilotTone(int num) throws Exception {
@@ -460,7 +482,7 @@ public class SignalGenerator implements SampleConsumer {
 
             /*Opportunity for cancellation every 256 pulses*/
             if ((i & 255)==0) {
-                if (parentTask.isCancelled()) break;
+                if (isCancelled()) break;
             }
 
             currentSignalWriter.write(PILOTTONE_PULSE);
@@ -473,7 +495,7 @@ public class SignalGenerator implements SampleConsumer {
     }
 
     private void generateSilence(int tenths) throws Exception {
-        for (int p = 0; p < tenths && !parentTask.isCancelled(); p++) {
+        for (int p = 0; p < tenths && !isCancelled(); p++) {
             currentSignalWriter.write(SILENCE_SHORT);
         }
     }
@@ -573,7 +595,7 @@ public class SignalGenerator implements SampleConsumer {
 
     private void generateBAUD() {
         ip++;
-        fskGenerator = new FSKGenerator(mem[ip], cSigned, cChannels, cBits, this, cPulseVolume, cSignalInRightChannelOnly, cSampleRate,parentTask);
+        fskGenerator = new FSKGenerator(mem[ip], cSigned, cChannels, cBits, this, cPulseVolume, cSignalInRightChannelOnly, cSampleRate, this::isCancelled, sampleCounter);
         ip++;
     }
 
@@ -596,20 +618,20 @@ public class SignalGenerator implements SampleConsumer {
 
         /*Handle situation without preceding BAUD instruction, default to 600 bps*/
         if (fskGenerator==null) {
-            fskGenerator = new FSKGenerator(600, cSigned, cChannels, cBits, this, cPulseVolume, cSignalInRightChannelOnly, cSampleRate, parentTask);
+            fskGenerator = new FSKGenerator(600, cSigned, cChannels, cBits, this, cPulseVolume, cSignalInRightChannelOnly, cSampleRate, this::isCancelled, sampleCounter);
         }
 
         /*Generate IRG in pieces of 2 seconds*/
         for (int i = 0; i < numPieces; i++) {
             fskGenerator.generateIRG(2_000);
-            if (parentTask.isCancelled()) {
+            if (isCancelled()) {
                 return;
             }
 
         }
         /*Remainder of IRG*/
         fskGenerator.generateIRG(remainder);
-        if (parentTask.isCancelled()) {
+        if (isCancelled()) {
             return;
         }
 
@@ -630,7 +652,7 @@ public class SignalGenerator implements SampleConsumer {
 
         /*Handle situation without preceding BAUD instruction, default to 600 bps*/
         if (fskGenerator==null) {
-            fskGenerator = new FSKGenerator(600, cSigned, cChannels, cBits, this, cPulseVolume, cSignalInRightChannelOnly, cSampleRate, parentTask);
+            fskGenerator = new FSKGenerator(600, cSigned, cChannels, cBits, this, cPulseVolume, cSignalInRightChannelOnly, cSampleRate, this::isCancelled, sampleCounter);
         }
         /*Generate the FSK signal*/
         fskGenerator.resetAngle();
@@ -648,7 +670,7 @@ public class SignalGenerator implements SampleConsumer {
     }
 
     private void updateProgress(int percentage,int tapeImagePosUpdateIp,boolean unconditional) {
-        if (ip<cResumeIp && !unconditional) return;
+        if (parentTask == null || (ip < cResumeIp && !unconditional)) return;
         parentTask.setProgress(percentage,tapeImagePosUpdateIp);
     }
 

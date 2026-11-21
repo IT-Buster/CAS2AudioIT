@@ -45,4 +45,20 @@
     <string name="goldies_downloading">Ściąganie...</string>
     <string name="btn_dismiss">Zamknij</string>
 
+    <string name="playlist_title">Playlista</string>
+    <string name="playlist_add">Dodaj CAS</string>
+    <string name="playlist_play">Odtwórz całość</string>
+    <string name="playlist_limit">Długość strony kasety (min)</string>
+    <string name="playlist_row">%1$d. %2$s · %3$s</string>
+    <string name="playlist_total">Łączny czas: %1$s</string>
+    <string name="playlist_remaining">Pozostało na stronie: %1$s</string>
+    <string name="playlist_over">Przekroczono limit o %1$s</string>
+    <string name="playlist_loading">Obliczanie czasu odtwarzania…</string>
+    <string name="playlist_unreadable">Nie udało się dodać: %1$s</string>
+    <string name="playlist_remove">Usuń</string>
+    <string name="playlist_up">Przesuń w górę</string>
+    <string name="playlist_down">Przesuń w dół</string>
+    <string name="playlist_now_playing">%1$d/%2$d - %3$s</string>
+    <string name="playlist_gap">Odstęp między plikami (s)</string>
+    <string name="playlist_gap_invalid">Wpisz poprawny odstęp w sekundach.</string>
 </resources>

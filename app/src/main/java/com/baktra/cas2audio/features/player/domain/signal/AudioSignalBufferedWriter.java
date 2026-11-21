@@ -8,6 +8,10 @@ import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+import android.os.SystemClock;
+
+import java.io.IOException;
+import java.util.function.BooleanSupplier;
 
 
 /**
@@ -27,6 +31,7 @@ public class AudioSignalBufferedWriter implements SignalWriter {
     private final int bitsPerSample;
 
     private AudioTrack track;
+    private final BooleanSupplier cancelled;
 
 
     private final int bufferSize;
@@ -38,8 +43,11 @@ public class AudioSignalBufferedWriter implements SignalWriter {
     private final int bitShift;
 
     private long numSamples;
+    private long submittedFrames;
 
-    public AudioSignalBufferedWriter(int bitsPerSample, int channels, int bufferSize, int sampleRate, int terminalSilence) {
+    public AudioSignalBufferedWriter(int bitsPerSample, int channels, int bufferSize, int sampleRate, int terminalSilence,
+                                     BooleanSupplier cancelled) {
+        this.cancelled = cancelled;
         this.bufferSize = bufferSize;
 
         /* Audio format - new style*/
@@ -82,6 +90,7 @@ public class AudioSignalBufferedWriter implements SignalWriter {
     public void prepare() throws Exception {
 
         track = getNewStyleAudioTrack();
+        track.setStartThresholdInFrames(1);
         track.play();
     }
 
@@ -144,7 +153,7 @@ public class AudioSignalBufferedWriter implements SignalWriter {
 
             /*If buffer is full, then flush and reset buffer*/
             if (internalBufferAvail == 0) {
-                track.write(internalBuffer, 0, internalBuffer.length);
+                writeBuffered(internalBuffer.length);
                 internalBufferPos = 0;
                 internalBufferAvail = internalBuffer.length;
             }
@@ -162,7 +171,7 @@ public class AudioSignalBufferedWriter implements SignalWriter {
 
     @Override
     public void flush() throws Exception {
-        track.write(internalBuffer, 0, internalBufferPos);
+        writeBuffered(internalBufferPos);
         internalBufferPos = 0;
         internalBufferAvail = internalBuffer.length;
         //track.drain();
@@ -170,10 +179,22 @@ public class AudioSignalBufferedWriter implements SignalWriter {
 
     @Override
     public void prepareForClose() throws Exception {
-        if (internalBufferPos != 0) {
-            track.write(internalBuffer, 0, internalBuffer.length - internalBufferAvail);
+        flush();
+        long lastPosition = -1;
+        long endPosition = submittedFrames & 0xffff_ffffL;
+        long lastAdvance = SystemClock.elapsedRealtime();
+        while (!cancelled.getAsBoolean()) {
+            long position = Integer.toUnsignedLong(track.getPlaybackHeadPosition());
+            if (position == endPosition) break;
+            long now = SystemClock.elapsedRealtime();
+            if (position != lastPosition) {
+                lastPosition = position;
+                lastAdvance = now;
+            } else if (now - lastAdvance > 3000) {
+                throw new IOException("Audio playback stopped before all samples were played");
+            }
+            Thread.sleep(10);
         }
-        track.stop();
     }
 
     @Override
@@ -206,8 +227,22 @@ public class AudioSignalBufferedWriter implements SignalWriter {
     }
 
     @Override
-    public void close() throws Exception {
-        track.stop();
+    public void close() {
+        if (track != null) {
+            track.release();
+        }
+    }
+
+    private void writeBuffered(int length) throws IOException {
+        int offset = 0;
+        while (offset < length) {
+            int written = track.write(internalBuffer, offset, length - offset);
+            if (written <= 0) {
+                throw new IOException("AudioTrack write failed: " + written);
+            }
+            offset += written;
+        }
+        submittedFrames += length >> bitShift;
     }
 
 }

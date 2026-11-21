@@ -1,6 +1,6 @@
 package com.baktra.cas2audio.features.player.domain.signal;
 
-import com.baktra.cas2audio.features.player.domain.CasTask;
+import java.util.function.BooleanSupplier;
 
 class FSKGenerator {
 
@@ -20,13 +20,15 @@ class FSKGenerator {
     /*Sine wave generation*/
     private int angle;
 
-    private CasTask parentTask;
+    private final BooleanSupplier cancelled;
+    private final DummySignalWriter sampleCounter;
 
-    public FSKGenerator(int baudRate, boolean signed, int numChannels, int bitsPerSample, SampleConsumer c, int amplitude, boolean rightOnly, int sampleRate, CasTask parentTask) {
+    public FSKGenerator(int baudRate, boolean signed, int numChannels, int bitsPerSample, SampleConsumer c, int amplitude, boolean rightOnly, int sampleRate, BooleanSupplier cancelled, DummySignalWriter sampleCounter) {
 
         this.consumer = c;
         this.sampleRate=sampleRate;
-        this.parentTask=parentTask;
+        this.cancelled = cancelled;
+        this.sampleCounter = sampleCounter;
         
         MARK_DEGREES_PER_SAMPLE = (MARK_FREQUENCY * 3_600) / sampleRate;
         SPACE_DEGREES_PER_SAMPLE = (SPACE_FREQUENCY * 3_600) / sampleRate;
@@ -35,26 +37,34 @@ class FSKGenerator {
         this.f2s = fact.getDouble2Sample(signed, bitsPerSample, numChannels);
 
         /*Some calculations*/
+        if (baudRate <= 0 || baudRate > sampleRate) {
+            throw new IllegalArgumentException("Invalid CAS baud rate: " + baudRate);
+        }
         samplesPerMarkOrSpace = sampleRate / baudRate;
         byteMultiplier = numChannels * ((bitsPerSample == 8) ? 1 : 2);
         angle = 0;
 
-        createSineTable();
+        if (sampleCounter == null) createSineTable();
 
     }
 
     public void generateIRG(int millis) throws Exception {
 
         /*Total number of samples for mark tone*/
-        int counter = 0;
-        int max = millis * sampleRate / 1_000;
+        long counter = 0;
+        long max = (long) millis * sampleRate / 1_000;
+        if (sampleCounter != null) {
+            sampleCounter.addFrames((max + samplesPerMarkOrSpace - 1) / samplesPerMarkOrSpace
+                    * samplesPerMarkOrSpace);
+            return;
+        }
 
         /*Generate marks repeatedly*/
         while (counter < max) {
 
             /*Opportunity for cancellation every 32K samples*/
             if ((counter & 32767)==0) {
-                if (parentTask.isCancelled()) break;
+                if (cancelled.getAsBoolean()) break;
             }
 
             generateMarkOrSpace(MARK_DEGREES_PER_SAMPLE,-1);
@@ -66,6 +76,10 @@ class FSKGenerator {
 
     public void generateData(int[] data) throws Exception {
 
+        if (sampleCounter != null) {
+            sampleCounter.addFrames((long) data.length * 10 * samplesPerMarkOrSpace);
+            return;
+        }
         int dataByte;
         int p;
 
@@ -73,28 +87,28 @@ class FSKGenerator {
 
             /*Opportunity for cancellation every 64 bytes*/
             if ((i & 63)==0) {
-                if (parentTask.isCancelled()) break;
+                if (cancelled.getAsBoolean()) break;
             }
 
             dataByte = data[i];
 
             /*Start bit*/
-            generateMarkOrSpace(SPACE_DEGREES_PER_SAMPLE,i);
+            generateMarkOrSpace(SPACE_DEGREES_PER_SAMPLE, i);
 
             /*Data bits, LSB to MSB*/
             int mask = 1;
             for (int k = 0; k < 8; k++) {
                 p = dataByte & mask;
                 if (p != 0) {
-                    generateMarkOrSpace(MARK_DEGREES_PER_SAMPLE,i);
+                    generateMarkOrSpace(MARK_DEGREES_PER_SAMPLE, -1);
                 } else {
-                    generateMarkOrSpace(SPACE_DEGREES_PER_SAMPLE,i);
+                    generateMarkOrSpace(SPACE_DEGREES_PER_SAMPLE, -1);
                 }
                 mask <<= 1;
             }
 
             /*Stop bit*/
-            generateMarkOrSpace(MARK_DEGREES_PER_SAMPLE,i);
+            generateMarkOrSpace(MARK_DEGREES_PER_SAMPLE, -1);
 
         }
 
@@ -103,7 +117,7 @@ class FSKGenerator {
     private void generateMarkOrSpace(int degreesPerSample,int dataIndex) throws Exception {
 
         for (int i = 0; i < samplesPerMarkOrSpace; i++) {
-            consumer.consumeSamples(sampleSineTable[angle],dataIndex);
+            consumer.consumeSamples(sampleSineTable[angle], i == 0 ? dataIndex : -1);
             angle += degreesPerSample;
             if (angle > 3_599) {
                 angle -= 3_600;
@@ -123,10 +137,14 @@ class FSKGenerator {
 
             /*Opportunity for cancellation every 64 bytes*/
             if ((i & 63)==0) {
-                if (parentTask.isCancelled()) break;
+                if (cancelled.getAsBoolean()) break;
             }
 
-            durationInSamples = (durations[i] * sampleRate) / 10_000;
+            durationInSamples = (int) ((long) durations[i] * sampleRate / 10_000);
+            if (sampleCounter != null) {
+                sampleCounter.addFrames(durationInSamples);
+                continue;
+            }
             if (mark == true) {
                 dps = MARK_DEGREES_PER_SAMPLE;
             } else {

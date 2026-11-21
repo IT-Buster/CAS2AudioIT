@@ -43,4 +43,20 @@
     <string name="goldies_downloading">Stahuje se...</string>
     <string name="btn_dismiss">Zavřít</string>
 
+    <string name="playlist_title">Seznam kazet</string>
+    <string name="playlist_add">Přidat CAS</string>
+    <string name="playlist_play">Přehrát vše</string>
+    <string name="playlist_limit">Délka strany kazety (min)</string>
+    <string name="playlist_row">%1$d. %2$s · %3$s</string>
+    <string name="playlist_total">Celkový čas: %1$s</string>
+    <string name="playlist_remaining">Zbývá na straně: %1$s</string>
+    <string name="playlist_over">Překročení limitu o %1$s</string>
+    <string name="playlist_loading">Výpočet doby přehrávání…</string>
+    <string name="playlist_unreadable">Nelze přidat: %1$s</string>
+    <string name="playlist_remove">Odebrat</string>
+    <string name="playlist_up">Posunout nahoru</string>
+    <string name="playlist_down">Posunout dolů</string>
+    <string name="playlist_now_playing">%1$d/%2$d - %3$s</string>
+    <string name="playlist_gap">Mezera mezi soubory (s)</string>
+    <string name="playlist_gap_invalid">Zadejte platnou mezeru v sekundách.</string>
 </resources>
