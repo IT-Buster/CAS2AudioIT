@@ -9,6 +9,7 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 
+import com.baktra.cas2audio.features.goldies.domain.GoldiesRepository;
 import com.baktra.cas2audio.features.goldies.domain.TapeSystem;
 import com.baktra.cas2audio.features.player.domain.CasPlaybackHandler;
 import com.baktra.cas2audio.features.player.domain.CasPlaybackObserver;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.IntFunction;
 import com.baktra.cas2audio.features.recent.domain.TapeImageRecents;
 import com.baktra.cas2audio.features.settings.repository.SettingsRepository;
 import com.baktra.cas2audio.features.settings.domain.UserSettings;
@@ -56,12 +58,13 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     private static final class Playlist {
         final List<PlaylistEntry> entries = new ArrayList<>();
         final List<String> unreadableFiles = new ArrayList<>();
+        final List<String> filesWithoutPwm = new ArrayList<>();
         String limitMinutes = "30";
         String gapSeconds = "0";
     }
 
     private final Map<TapeSystem, Playlist> playlists = new HashMap<>();
-    private TapeSystem selectedPlaylistSystem = TapeSystem.GOLDIES_SYSTEMS.get(0);
+    private TapeSystem selectedPlaylistSystem = TapeSystem.STANDARD;
     private final MutableLiveData<Boolean> playlistLoading = new MutableLiveData<>(false);
     private final ExecutorService playlistLoader = Executors.newSingleThreadExecutor();
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -128,24 +131,50 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
         return Collections.unmodifiableList(selectedPlaylist().unreadableFiles);
     }
 
+    List<String> getPlaylistFilesWithoutPwm() {
+        return Collections.unmodifiableList(selectedPlaylist().filesWithoutPwm);
+    }
+
     LiveData<Boolean> getPlaylistLoading() {
         return playlistLoading;
     }
 
     void addPlaylistFiles(List<Uri> uris, List<String> names) {
+        addPlaylistEntries(names, i -> tapeImageOpener.readPlaylistEntry(uris.get(i), names.get(i)));
+    }
+
+    void addGoldiesPlaylistFiles(GoldiesRepository repository, List<String> names) {
+        TapeSystem system = selectedPlaylistSystem;
+        addPlaylistEntries(names, i -> {
+            String name = names.get(i);
+            int[] data = repository.getTapeImageData(system, name);
+            if (data == null) throw new IllegalStateException("Missing Goldies image: " + name);
+            return tapeImageOpener.readTapeImage(null, data, false, name);
+        });
+    }
+
+    private void addPlaylistEntries(List<String> names, IntFunction<TapeImageOpener.ReadResult> readEntry) {
         if (isPlaying() || Boolean.TRUE.equals(playlistLoading.getValue())) return;
         Playlist target = selectedPlaylist();
         target.unreadableFiles.clear();
+        target.filesWithoutPwm.clear();
+        boolean requirePwm = !selectedPlaylistSystem.isStandard();
         playlistLoading.setValue(true);
         playlistLoader.execute(() -> {
             List<PlaylistEntry> entries = new ArrayList<>();
             List<String> failures = new ArrayList<>();
-            for (int i = 0; i < uris.size() && !Thread.currentThread().isInterrupted(); i++) {
+            List<String> filesWithoutPwm = new ArrayList<>();
+            for (int i = 0; i < names.size() && !Thread.currentThread().isInterrupted(); i++) {
                 String name = names.get(i);
                 try {
-                    TapeImageOpener.ReadResult result = tapeImageOpener.readPlaylistEntry(uris.get(i), name);
+                    TapeImageOpener.ReadResult result = readEntry.apply(i);
                     if (!result.isSuccess()) throw result.getException();
-                    entries.add(new PlaylistEntry(result.getTapeImageCrate()));
+                    TapeImageCrate tape = result.getTapeImageCrate();
+                    if (requirePwm && !tape.getConvCrate().hasPwmData()) {
+                        filesWithoutPwm.add(name);
+                    } else {
+                        entries.add(new PlaylistEntry(tape));
+                    }
                 } catch (Exception e) {
                     failures.add(name);
                 }
@@ -154,6 +183,7 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
                 if (cleared) return;
                 target.entries.addAll(entries);
                 target.unreadableFiles.addAll(failures);
+                target.filesWithoutPwm.addAll(filesWithoutPwm);
                 playlistLoading.setValue(false);
             });
         });

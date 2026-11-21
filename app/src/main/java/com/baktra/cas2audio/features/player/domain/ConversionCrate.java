@@ -6,6 +6,7 @@ import java.util.ArrayList;
 
 public class ConversionCrate {
     private int sampleRate;
+    private boolean pwmData;
     private int[] instructions;
     private ArrayList<ResumePoint> resumePoints;
     public ConversionCrate() {
@@ -15,6 +16,14 @@ public class ConversionCrate {
     public void setInstructions(int[] instructions) {
         this.instructions = new int[instructions.length];
         System.arraycopy(instructions,0,this.instructions,0,instructions.length);
+    }
+
+    public void markPwmData() {
+        pwmData = true;
+    }
+
+    public boolean hasPwmData() {
+        return pwmData;
     }
 
     public void addResumePoint(ResumePoint rsp) {

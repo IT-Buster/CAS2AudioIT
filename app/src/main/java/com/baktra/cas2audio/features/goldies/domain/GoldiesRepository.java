@@ -204,34 +204,21 @@ public class GoldiesRepository {
 
     public int[] getTapeImageData(TapeSystem system,String fileName) {
 
-        /*Instantiate the zip file*/
-        try {
-            File f = new File(localDirectory, "goldies.zip");
-            ZipFile zipFile = new ZipFile(f);
-            if (!f.exists() || !f.isFile()) return null;
-
-            ZipEntry entry = zipFile.getEntry(system.getPrefixCode()+"/"+fileName);
-            InputStream is = zipFile.getInputStream(entry);
-
-            InstructionStream tiBytes = new InstructionStream();
-            int oneByte;
-            while ((oneByte=is.read())!=-1) {
-                tiBytes.add(oneByte);
+        File archive = new File(localDirectory, "goldies.zip");
+        try (ZipFile zip = new ZipFile(archive)) {
+            ZipEntry entry = zip.getEntry(system.getPrefixCode() + "/" + fileName);
+            if (entry == null || entry.isDirectory()) return null;
+            try (InputStream input = zip.getInputStream(entry)) {
+                InstructionStream bytes = new InstructionStream();
+                int value;
+                while ((value = input.read()) != -1) {
+                    bytes.add(value);
+                }
+                return bytes.getInstructions();
             }
-
-            /*Close both stream and the ZIP file*/
-            is.close();
-            zipFile.close();
-
-            /*Return the array*/
-            return tiBytes.getInstructions();
-        }
-        catch (Exception e) {
-            e.printStackTrace();
+        } catch (IOException e) {
             return null;
         }
-
-
     }
 
     public List<TapeSystem> getTapeSystems() {

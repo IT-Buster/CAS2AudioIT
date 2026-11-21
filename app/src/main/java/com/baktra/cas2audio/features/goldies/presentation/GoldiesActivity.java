@@ -27,7 +27,11 @@ import java.util.List;
 
 public class GoldiesActivity extends AppCompatActivity implements AdapterView.OnItemSelectedListener,AdapterView.OnItemClickListener {
 
+    public static final String EXTRA_PLAYLIST_SYSTEM = "playlist_system";
+    public static final String EXTRA_PLAYLIST_FILES = "playlist_files";
+
     private GoldiesViewModel viewModel;
+    private boolean playlistPicker;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,7 +40,18 @@ public class GoldiesActivity extends AppCompatActivity implements AdapterView.On
         setContentView(R.layout.activity_goldies);
 
         Cas2AudioApp c2aApp = (Cas2AudioApp)getApplication();
-        GoldiesViewModelFactory factory = new GoldiesViewModelFactory(c2aApp.getGoldiesRepository(), c2aApp.getSettingsRepository());
+        String systemCode = getIntent().getStringExtra(EXTRA_PLAYLIST_SYSTEM);
+        playlistPicker = systemCode != null;
+        GoldiesViewModelFactory factory = new GoldiesViewModelFactory(c2aApp.getGoldiesRepository(),
+                c2aApp.getSettingsRepository(), systemCode);
+
+        if (playlistPicker) {
+            ListView list = findViewById(R.id.lvGoldies);
+            list.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE);
+            Button add = findViewById(R.id.btnAddGoldiesToPlaylist);
+            add.setVisibility(View.VISIBLE);
+            add.setOnClickListener(view -> addCheckedFiles());
+        }
 
         setTitle(getString(R.string.goldies));
 
@@ -73,6 +88,7 @@ public class GoldiesActivity extends AppCompatActivity implements AdapterView.On
                 Spinner spSystems = (Spinner) findViewById(R.id.spSystems);
 
                 ImageButton btnRefresh = (ImageButton)findViewById(R.id.btnRefresh);
+                findViewById(R.id.btnAddGoldiesToPlaylist).setEnabled(false);
 
                 /*For an empty state, display just everything empty.
                 * The user can select the refresh button to download the archive*/
@@ -88,7 +104,7 @@ public class GoldiesActivity extends AppCompatActivity implements AdapterView.On
                     spSystems.setEnabled(false);
                     btnRefresh.setEnabled(true);
 
-                    setMessageBarVisible(false,false,null);
+                    setMessageBarVisible(playlistPicker, false, getString(R.string.playlist_goldies_empty));
 
                     return;
                 }
@@ -169,7 +185,9 @@ public class GoldiesActivity extends AppCompatActivity implements AdapterView.On
                     /*The state is */
                     String[] itemsArr = new String[0];
                     itemsArr = newState.getCurrentItems().toArray(itemsArr);
-                    lv.setAdapter(new ArrayAdapter<String>(GoldiesActivity.this, R.layout.goldies_item, itemsArr));
+                    int rowLayout = playlistPicker ? android.R.layout.simple_list_item_multiple_choice
+                            : R.layout.goldies_item;
+                    lv.setAdapter(new ArrayAdapter<>(GoldiesActivity.this, rowLayout, itemsArr));
                     lv.setEnabled(true);
 
                     /*Redisplay the Systems, but only when the list has changed*/
@@ -182,7 +200,7 @@ public class GoldiesActivity extends AppCompatActivity implements AdapterView.On
                         spSystems.setSelection(selPosition);
                     }
 
-                    spSystems.setEnabled(true);
+                    spSystems.setEnabled(!playlistPicker);
                     btnRefresh.setEnabled(true);
 
                     spSystems.setOnItemSelectedListener(GoldiesActivity.this);
@@ -291,6 +309,10 @@ public class GoldiesActivity extends AppCompatActivity implements AdapterView.On
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 
         if (parent==findViewById(R.id.lvGoldies)) {
+            if (playlistPicker) {
+                updateAddButton();
+                return;
+            }
 
             ListView lv = (ListView)findViewById(R.id.lvGoldies);
             Spinner sp = (Spinner)findViewById(R.id.spSystems);
@@ -300,6 +322,33 @@ public class GoldiesActivity extends AppCompatActivity implements AdapterView.On
             finish();
         }
 
+    }
+
+    @Override
+    protected void onRestoreInstanceState(Bundle state) {
+        super.onRestoreInstanceState(state);
+        if (playlistPicker) updateAddButton();
+    }
+
+    private void updateAddButton() {
+        ListView list = findViewById(R.id.lvGoldies);
+        findViewById(R.id.btnAddGoldiesToPlaylist).setEnabled(list.getCheckedItemCount() > 0);
+    }
+
+    private void addCheckedFiles() {
+        ListView list = findViewById(R.id.lvGoldies);
+        TapeSystem system = viewModel.getUIState().getValue().getCurrentTapeSystem();
+        if (system == null) return;
+        ArrayList<String> files = new ArrayList<>();
+        for (int i = 0; i < list.getCount(); i++) {
+            if (list.isItemChecked(i)) files.add((String) list.getItemAtPosition(i));
+        }
+        if (files.isEmpty()) return;
+        Intent result = new Intent();
+        result.putExtra(EXTRA_PLAYLIST_SYSTEM, system.getPrefixCode());
+        result.putStringArrayListExtra(EXTRA_PLAYLIST_FILES, files);
+        setResult(RESULT_OK, result);
+        finish();
     }
 
     @Override

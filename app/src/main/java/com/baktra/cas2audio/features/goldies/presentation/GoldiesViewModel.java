@@ -87,8 +87,10 @@ public class GoldiesViewModel extends ViewModel implements GoldiesRepositoryObse
     private Map<TapeSystem, List<String>> currentMap;
     private SettingsRepository settingsRepo;
     private String savedTapeSystemName;
+    private final String playlistSystemCode;
 
-    public GoldiesViewModel(GoldiesRepository goldiesRepo, SettingsRepository settingsRepo) {
+    public GoldiesViewModel(GoldiesRepository goldiesRepo, SettingsRepository settingsRepo, String playlistSystemCode) {
+        this.playlistSystemCode = playlistSystemCode;
         this.goldiesRepo=goldiesRepo;
         goldiesRepo.setObserver(this);
         this.uiState = new MutableLiveData<>(new UIState(MainState.EMPTY,null,null,null));
@@ -123,6 +125,20 @@ public class GoldiesViewModel extends ViewModel implements GoldiesRepositoryObse
     public void onDisplay(Map<TapeSystem, List<String>> map,List<TapeSystem> tapeSystems) {
 
         currentMap=map;
+        if (playlistSystemCode != null) {
+            for (TapeSystem system : tapeSystems) {
+                if (playlistSystemCode.equals(system.getPrefixCode())) {
+                    List<String> items = map.get(system);
+                    if (items != null && !items.isEmpty()) {
+                        uiState.setValue(new UIState(MainState.LIST_POPULATED, system, items, List.of(system)));
+                        return;
+                    }
+                    break;
+                }
+            }
+            uiState.setValue(new UIState(MainState.EMPTY, null, null, null));
+            return;
+        }
 
         /*Determine if empty or populated*/
         if (tapeSystems.isEmpty()) {
@@ -174,7 +190,7 @@ public class GoldiesViewModel extends ViewModel implements GoldiesRepositoryObse
 
     public void updateCurrentTapeSystem(TapeSystem newSystem) {
 
-        if (currentMap==null) return;
+        if (currentMap==null || playlistSystemCode != null) return;
 
         List<String> lItems = currentMap.get(newSystem);
         UIState newState = new UIState(MainState.LIST_POPULATED, newSystem, lItems,goldiesRepo.getTapeSystems());
@@ -201,7 +217,7 @@ public class GoldiesViewModel extends ViewModel implements GoldiesRepositoryObse
         super.onCleared();
 
         TapeSystem lastSystem = uiState.getValue().getCurrentTapeSystem();
-        if (lastSystem!=null) {
+        if (lastSystem!=null && playlistSystemCode == null) {
            goldiesRepo.saveLastSystem(lastSystem);
         }
         cancelBackgroundTasks();

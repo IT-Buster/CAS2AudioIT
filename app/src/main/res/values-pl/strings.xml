@@ -63,4 +63,9 @@
     <string name="playlist_gap_invalid">Wpisz poprawny odstęp w sekundach.</string>
     <string name="playlist_system">System</string>
     <string name="playlist_add_for_system">Dodaj pliki CAS przygotowane dla systemu %1$s.</string>
+    <string name="playlist_from_goldies">Z Goldies</string>
+    <string name="playlist_from_files">Z urządzenia</string>
+    <string name="playlist_add_selected">Dodaj zaznaczone do playlisty</string>
+    <string name="playlist_goldies_empty">Goldies nie zawiera plików dla tego systemu.</string>
+    <string name="playlist_no_pwm">Brak danych turbo PWM w plikach: %1$s. Wybierz wersję turbo z Goldies.</string>
 </resources>

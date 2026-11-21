@@ -82,5 +82,13 @@
             android:padding="4dp">
 
         </ListView>
+
+        <Button
+            android:id="@+id/btnAddGoldiesToPlaylist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="@string/playlist_add_selected"
+            android:visibility="gone" />
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

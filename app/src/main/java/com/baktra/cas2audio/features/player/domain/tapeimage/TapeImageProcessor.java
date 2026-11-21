@@ -35,6 +35,9 @@ public class TapeImageProcessor {
             parent = chunk.getParent();
             ResumePoint rsp  = new ResumePoint(i,is.getPointer(),chunk);
             crate.addResumePoint(rsp);
+            if (chunk instanceof PWMChunk && !"pwms".equals(chunk.getType()) && chunk.getData().length > 0) {
+                crate.markPwmData();
+            }
             addInstructionsForChunk(is, chunk);
         }
 

@@ -70,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
     private AlertDialog playlistDialog;
     private AlertDialog playlistEntryDialog;
     private ActivityResultLauncher<String[]> launchPlaylistFiles;
+    private ActivityResultLauncher<Intent> launchPlaylistGoldies;
     private TextView playlistSummary;
     private ListView playlistRows;
     private Spinner playlistSystems;
@@ -110,6 +111,8 @@ public class MainActivity extends AppCompatActivity {
         initializeLaunchers();
         launchPlaylistFiles = registerForActivityResult(
                 new ActivityResultContracts.OpenMultipleDocuments(), this::processPlaylistFiles);
+        launchPlaylistGoldies = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), this::processPlaylistGoldiesResult);
         viewModel.getPlaylistLoading().observe(this, loading -> refreshPlaylist());
         if (savedInstanceState != null) {
             String systemCode = savedInstanceState.getString("playlist_system");
@@ -635,10 +638,8 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onNothingSelected(AdapterView<?> parent) {}
         });
-        playlistDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
-            playlistDialog.dismiss();
-            launchPlaylistFiles.launch(new String[]{"*/*"});
-        });
+        playlistDialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(view -> choosePlaylistSource());
         refreshPlaylist();
     }
 
@@ -669,6 +670,39 @@ public class MainActivity extends AppCompatActivity {
         });
         field.addView(input);
         return input;
+    }
+
+    private void choosePlaylistSource() {
+        playlistEntryDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.playlist_add)
+                .setItems(new CharSequence[]{getText(R.string.playlist_from_goldies),
+                        getText(R.string.playlist_from_files)}, (dialog, source) -> {
+                    playlistDialog.dismiss();
+                    if (source == 0) {
+                        Intent intent = new Intent(this, GoldiesActivity.class);
+                        intent.putExtra(GoldiesActivity.EXTRA_PLAYLIST_SYSTEM,
+                                viewModel.getSelectedPlaylistSystem().getPrefixCode());
+                        launchPlaylistGoldies.launch(intent);
+                    } else {
+                        launchPlaylistFiles.launch(new String[]{"*/*"});
+                    }
+                })
+                .create();
+        playlistEntryDialog.show();
+    }
+
+    private void processPlaylistGoldiesResult(ActivityResult result) {
+        Intent data = result.getData();
+        if (result.getResultCode() == Activity.RESULT_OK && data != null
+                && viewModel.getSelectedPlaylistSystem().getPrefixCode()
+                        .equals(data.getStringExtra(GoldiesActivity.EXTRA_PLAYLIST_SYSTEM))) {
+            List<String> files = data.getStringArrayListExtra(GoldiesActivity.EXTRA_PLAYLIST_FILES);
+            if (files != null && !files.isEmpty()) {
+                Cas2AudioApp app = (Cas2AudioApp) getApplication();
+                viewModel.addGoldiesPlaylistFiles(app.getGoldiesRepository(), files);
+            }
+        }
+        onPlaylist(null);
     }
 
     private void processPlaylistFiles(List<Uri> uris) {
@@ -731,12 +765,20 @@ public class MainActivity extends AppCompatActivity {
         }
         if (loading) {
             summary.append('\n').append(getString(R.string.playlist_loading));
-        } else if (!viewModel.getUnreadablePlaylistFiles().isEmpty()) {
-            summary.append('\n').append(getString(R.string.playlist_unreadable,
-                    String.join(", ", viewModel.getUnreadablePlaylistFiles())));
-        } else if (viewModel.getPlaylist().isEmpty()) {
-            summary.append('\n').append(getString(R.string.playlist_add_for_system,
-                    viewModel.getSelectedPlaylistSystem().getName()));
+        } else {
+            List<String> unreadable = viewModel.getUnreadablePlaylistFiles();
+            List<String> missingPwm = viewModel.getPlaylistFilesWithoutPwm();
+            if (!unreadable.isEmpty()) {
+                summary.append('\n').append(getString(R.string.playlist_unreadable,
+                        String.join(", ", unreadable)));
+            }
+            if (!missingPwm.isEmpty()) {
+                summary.append('\n').append(getString(R.string.playlist_no_pwm,
+                        String.join(", ", missingPwm)));
+            } else if (viewModel.getPlaylist().isEmpty() && unreadable.isEmpty()) {
+                summary.append('\n').append(getString(R.string.playlist_add_for_system,
+                        viewModel.getSelectedPlaylistSystem().getName()));
+            }
         }
         playlistSummary.setText(summary);
     }

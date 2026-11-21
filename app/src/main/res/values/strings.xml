@@ -61,4 +61,9 @@
     <string name="playlist_gap_invalid">Enter a valid gap in seconds.</string>
     <string name="playlist_system">System</string>
     <string name="playlist_add_for_system">Add CAS files prepared for %1$s.</string>
+    <string name="playlist_from_goldies">From Goldies</string>
+    <string name="playlist_from_files">From device</string>
+    <string name="playlist_add_selected">Add selected to playlist</string>
+    <string name="playlist_goldies_empty">Goldies has no files for this system.</string>
+    <string name="playlist_no_pwm">No turbo PWM data in: %1$s. Select the turbo version in Goldies.</string>
 </resources>
