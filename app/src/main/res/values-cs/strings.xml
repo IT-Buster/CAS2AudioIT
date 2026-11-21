@@ -59,4 +59,6 @@
     <string name="playlist_now_playing">%1$d/%2$d - %3$s</string>
     <string name="playlist_gap">Mezera mezi soubory (s)</string>
     <string name="playlist_gap_invalid">Zadejte platnou mezeru v sekundách.</string>
+    <string name="playlist_system">Systém</string>
+    <string name="playlist_add_for_system">Přidejte soubory CAS připravené pro systém %1$s.</string>
 </resources>

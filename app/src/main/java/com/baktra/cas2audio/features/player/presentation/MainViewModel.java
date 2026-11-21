@@ -9,13 +9,16 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 
+import com.baktra.cas2audio.features.goldies.domain.TapeSystem;
 import com.baktra.cas2audio.features.player.domain.CasPlaybackHandler;
 import com.baktra.cas2audio.features.player.domain.CasPlaybackObserver;
 import com.baktra.cas2audio.features.player.domain.signal.SignalGenerator;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import com.baktra.cas2audio.features.recent.domain.TapeImageRecents;
@@ -50,8 +53,15 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
         }
     }
 
-    private final List<PlaylistEntry> playlist = new ArrayList<>();
-    private final List<String> unreadableFiles = new ArrayList<>();
+    private static final class Playlist {
+        final List<PlaylistEntry> entries = new ArrayList<>();
+        final List<String> unreadableFiles = new ArrayList<>();
+        String limitMinutes = "30";
+        String gapSeconds = "0";
+    }
+
+    private final Map<TapeSystem, Playlist> playlists = new HashMap<>();
+    private TapeSystem selectedPlaylistSystem = TapeSystem.GOLDIES_SYSTEMS.get(0);
     private final MutableLiveData<Boolean> playlistLoading = new MutableLiveData<>(false);
     private final ExecutorService playlistLoader = Executors.newSingleThreadExecutor();
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -60,13 +70,39 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     private int playbackGapSeconds;
     private boolean gapPending;
     private boolean cleared;
-    String playlistLimitMinutes = "30";
-    String playlistGapSeconds = "0";
+    private Playlist selectedPlaylist() {
+        return playlists.computeIfAbsent(selectedPlaylistSystem, system -> new Playlist());
+    }
+
+    TapeSystem getSelectedPlaylistSystem() {
+        return selectedPlaylistSystem;
+    }
+
+    void selectPlaylistSystem(TapeSystem system) {
+        selectedPlaylistSystem = system;
+    }
+
+    String getPlaylistLimitText() {
+        return selectedPlaylist().limitMinutes;
+    }
+
+    void setPlaylistLimitText(String minutes) {
+        selectedPlaylist().limitMinutes = minutes;
+    }
+
+    String getPlaylistGapText() {
+        return selectedPlaylist().gapSeconds;
+    }
+
+    void setPlaylistGapText(String seconds) {
+        selectedPlaylist().gapSeconds = seconds;
+    }
 
     int getPlaylistGapSeconds() {
-        if (playlistGapSeconds.isEmpty()) return 0;
+        String gap = getPlaylistGapText();
+        if (gap.isEmpty()) return 0;
         try {
-            return Math.max(-1, Integer.parseInt(playlistGapSeconds));
+            return Math.max(-1, Integer.parseInt(gap));
         } catch (NumberFormatException e) {
             return -1;
         }
@@ -75,6 +111,7 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     long getPlaylistDurationSeconds() {
         boolean do48kHz = getUserSettings().isDo48kHz();
         int sampleRate = do48kHz ? 48000 : 44100;
+        List<PlaylistEntry> playlist = selectedPlaylist().entries;
         long frames = 0;
         for (PlaylistEntry entry : playlist) {
             frames += entry.frames(do48kHz);
@@ -84,11 +121,11 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     }
 
     List<PlaylistEntry> getPlaylist() {
-        return Collections.unmodifiableList(playlist);
+        return Collections.unmodifiableList(selectedPlaylist().entries);
     }
 
     List<String> getUnreadablePlaylistFiles() {
-        return Collections.unmodifiableList(unreadableFiles);
+        return Collections.unmodifiableList(selectedPlaylist().unreadableFiles);
     }
 
     LiveData<Boolean> getPlaylistLoading() {
@@ -97,7 +134,8 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
 
     void addPlaylistFiles(List<Uri> uris, List<String> names) {
         if (isPlaying() || Boolean.TRUE.equals(playlistLoading.getValue())) return;
-        unreadableFiles.clear();
+        Playlist target = selectedPlaylist();
+        target.unreadableFiles.clear();
         playlistLoading.setValue(true);
         playlistLoader.execute(() -> {
             List<PlaylistEntry> entries = new ArrayList<>();
@@ -114,22 +152,23 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
             }
             mainHandler.post(() -> {
                 if (cleared) return;
-                playlist.addAll(entries);
-                unreadableFiles.addAll(failures);
+                target.entries.addAll(entries);
+                target.unreadableFiles.addAll(failures);
                 playlistLoading.setValue(false);
             });
         });
     }
 
     void movePlaylistEntry(int from, int to) {
-        Collections.swap(playlist, from, to);
+        Collections.swap(selectedPlaylist().entries, from, to);
     }
 
     void removePlaylistEntry(int position) {
-        playlist.remove(position);
+        selectedPlaylist().entries.remove(position);
     }
 
     void startPlaylist() {
+        List<PlaylistEntry> playlist = selectedPlaylist().entries;
         int gapSeconds = getPlaylistGapSeconds();
         if (gapSeconds < 0 || playlist.isEmpty() || isPlaying()
                 || Boolean.TRUE.equals(playlistLoading.getValue())) return;

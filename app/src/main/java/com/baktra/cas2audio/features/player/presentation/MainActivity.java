@@ -33,7 +33,9 @@ import androidx.lifecycle.ViewModelProvider;
 import com.baktra.cas2audio.Cas2AudioApp;
 import com.baktra.cas2audio.R;
 import com.baktra.cas2audio.core.util.Utils;
+import com.baktra.cas2audio.features.goldies.domain.TapeSystem;
 import com.baktra.cas2audio.features.goldies.presentation.GoldiesActivity;
+import com.baktra.cas2audio.features.goldies.presentation.GoldiesSystemAdapter;
 import com.baktra.cas2audio.features.recent.presentation.RecentActivity;
 import com.baktra.cas2audio.features.settings.SettingsActivity;
 import com.baktra.cas2audio.features.settings.domain.UserSettings;
@@ -70,6 +72,7 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<String[]> launchPlaylistFiles;
     private TextView playlistSummary;
     private ListView playlistRows;
+    private Spinner playlistSystems;
 
     public MainActivity() {
         super();
@@ -108,8 +111,15 @@ public class MainActivity extends AppCompatActivity {
         launchPlaylistFiles = registerForActivityResult(
                 new ActivityResultContracts.OpenMultipleDocuments(), this::processPlaylistFiles);
         viewModel.getPlaylistLoading().observe(this, loading -> refreshPlaylist());
-        if (savedInstanceState != null && savedInstanceState.getBoolean("playlist_open")) {
-            onPlaylist(null);
+        if (savedInstanceState != null) {
+            String systemCode = savedInstanceState.getString("playlist_system");
+            for (TapeSystem system : TapeSystem.GOLDIES_SYSTEMS) {
+                if (system.getPrefixCode().equals(systemCode)) {
+                    viewModel.selectPlaylistSystem(system);
+                    break;
+                }
+            }
+            if (savedInstanceState.getBoolean("playlist_open")) onPlaylist(null);
         }
     }
 
@@ -148,6 +158,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putBoolean("playlist_open", playlistDialog != null && playlistDialog.isShowing());
+        state.putString("playlist_system", viewModel.getSelectedPlaylistSystem().getPrefixCode());
     }
 
     @Override
@@ -559,16 +570,28 @@ public class MainActivity extends AppCompatActivity {
         int padding = Math.round(24 * getResources().getDisplayMetrics().density);
         content.setPadding(padding, 0, padding, 0);
 
+        LinearLayout systemRow = new LinearLayout(this);
+        systemRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView systemLabel = new TextView(this);
+        systemLabel.setText(R.string.playlist_system);
+        systemRow.addView(systemLabel);
+        playlistSystems = new Spinner(this);
+        playlistSystems.setId(View.generateViewId());
+        systemLabel.setLabelFor(playlistSystems.getId());
+        GoldiesSystemAdapter systems = new GoldiesSystemAdapter(this,
+                R.layout.goldies_system_item, TapeSystem.GOLDIES_SYSTEMS);
+        playlistSystems.setAdapter(systems);
+        playlistSystems.setSelection(systems.getPosition(viewModel.getSelectedPlaylistSystem()));
+        systemRow.addView(playlistSystems, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        content.addView(systemRow);
+
         LinearLayout fields = new LinearLayout(this);
         content.addView(fields);
-        addPlaylistNumberField(fields, R.string.playlist_limit, viewModel.playlistLimitMinutes, value -> {
-            viewModel.playlistLimitMinutes = value;
-            updatePlaylistSummary();
-        });
-        addPlaylistNumberField(fields, R.string.playlist_gap, viewModel.playlistGapSeconds, value -> {
-            viewModel.playlistGapSeconds = value;
-            updatePlaylistSummary();
-        });
+        EditText limit = addPlaylistNumberField(fields, R.string.playlist_limit,
+                viewModel.getPlaylistLimitText(), viewModel::setPlaylistLimitText);
+        EditText gap = addPlaylistNumberField(fields, R.string.playlist_gap,
+                viewModel.getPlaylistGapText(), viewModel::setPlaylistGapText);
 
         playlistSummary = new TextView(this);
         playlistSummary.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
@@ -576,7 +599,7 @@ public class MainActivity extends AppCompatActivity {
 
         playlistRows = new ListView(this);
         playlistRows.setOnItemClickListener((parent, view, position, id) -> editPlaylistEntry(position));
-        int rowsHeightDp = Math.min(240, getResources().getConfiguration().screenHeightDp / 3);
+        int rowsHeightDp = Math.min(240, getResources().getConfiguration().screenHeightDp / 4);
         int rowsHeight = Math.round(rowsHeightDp * getResources().getDisplayMetrics().density);
         content.addView(playlistRows, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, rowsHeight));
@@ -594,8 +617,24 @@ public class MainActivity extends AppCompatActivity {
             playlistDialog = null;
             playlistSummary = null;
             playlistRows = null;
+            playlistSystems = null;
         });
         playlistDialog.show();
+        playlistSystems.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View row, int position, long id) {
+                if (parent != playlistSystems) return;
+                TapeSystem system = (TapeSystem) parent.getItemAtPosition(position);
+                if (system.equals(viewModel.getSelectedPlaylistSystem())) return;
+                viewModel.selectPlaylistSystem(system);
+                limit.setText(viewModel.getPlaylistLimitText());
+                gap.setText(viewModel.getPlaylistGapText());
+                refreshPlaylist();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
         playlistDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
             playlistDialog.dismiss();
             launchPlaylistFiles.launch(new String[]{"*/*"});
@@ -603,7 +642,7 @@ public class MainActivity extends AppCompatActivity {
         refreshPlaylist();
     }
 
-    private void addPlaylistNumberField(LinearLayout fields, int labelId, String value,
+    private EditText addPlaylistNumberField(LinearLayout fields, int labelId, String value,
                                         Consumer<String> onChange) {
         LinearLayout field = new LinearLayout(this);
         field.setOrientation(LinearLayout.VERTICAL);
@@ -624,10 +663,12 @@ public class MainActivity extends AppCompatActivity {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence text, int start, int before, int count) {
                 onChange.accept(text.toString());
+                updatePlaylistSummary();
             }
             @Override public void afterTextChanged(Editable text) {}
         });
         field.addView(input);
+        return input;
     }
 
     private void processPlaylistFiles(List<Uri> uris) {
@@ -659,6 +700,7 @@ public class MainActivity extends AppCompatActivity {
         }
         playlistRows.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, rows));
         playlistRows.setEnabled(!loading);
+        playlistSystems.setEnabled(!loading);
         playlistDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setEnabled(!loading);
         updatePlaylistSummary();
     }
@@ -677,7 +719,7 @@ public class MainActivity extends AppCompatActivity {
         StringBuilder summary = new StringBuilder(getString(
                 R.string.playlist_total, formatPlaylistTime(seconds)));
         try {
-            int limit = Integer.parseInt(viewModel.playlistLimitMinutes);
+            int limit = Integer.parseInt(viewModel.getPlaylistLimitText());
             if (limit > 0) {
                 long remaining = limit * 60L - seconds;
                 summary.append('\n').append(getString(
@@ -692,6 +734,9 @@ public class MainActivity extends AppCompatActivity {
         } else if (!viewModel.getUnreadablePlaylistFiles().isEmpty()) {
             summary.append('\n').append(getString(R.string.playlist_unreadable,
                     String.join(", ", viewModel.getUnreadablePlaylistFiles())));
+        } else if (viewModel.getPlaylist().isEmpty()) {
+            summary.append('\n').append(getString(R.string.playlist_add_for_system,
+                    viewModel.getSelectedPlaylistSystem().getName()));
         }
         playlistSummary.setText(summary);
     }

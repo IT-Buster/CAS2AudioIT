@@ -61,4 +61,6 @@
     <string name="playlist_now_playing">%1$d/%2$d - %3$s</string>
     <string name="playlist_gap">Odstęp między plikami (s)</string>
     <string name="playlist_gap_invalid">Wpisz poprawny odstęp w sekundach.</string>
+    <string name="playlist_system">System</string>
+    <string name="playlist_add_for_system">Dodaj pliki CAS przygotowane dla systemu %1$s.</string>
 </resources>

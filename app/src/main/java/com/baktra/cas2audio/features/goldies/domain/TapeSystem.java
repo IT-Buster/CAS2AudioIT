@@ -1,8 +1,19 @@
 package com.baktra.cas2audio.features.goldies.domain;
 
+import java.util.List;
 import java.util.Objects;
 
 public final class TapeSystem {
+
+    // Goldies archive map.txt, available to the playlist without downloading the archive.
+    public static final List<TapeSystem> GOLDIES_SYSTEMS = List.of(
+            new TapeSystem("Standard", "US", "us_standard"),
+            new TapeSystem("Turbo 2000", "CS", "cs_turbo2000"),
+            new TapeSystem("KSO Turbo 2000", "PL", "pl_ksoturbo2000"),
+            new TapeSystem("Turbo Blizzard", "PL", "pl_blizzard"),
+            new TapeSystem("Atari Super Turbo", "PL", "pl_ast"),
+            new TapeSystem("Omicron Turbo", "XX", "xx_omicron_turbo"));
+
 
     private final String name;
     private final String country;

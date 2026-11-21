@@ -9,9 +9,9 @@ android {
         minSdk 31
         compileSdk = 34
         /*targetSdkVersion(30)*/
-        versionName= '1.0.1'
+        versionName= '1.1.0'
         testInstrumentationRunner="androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 113
+        versionCode = 114
         //noinspection ExpiredTargetSdkVersion, OldTargetApi
         targetSdk 31
     }
