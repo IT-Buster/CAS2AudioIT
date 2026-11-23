@@ -137,6 +137,8 @@
 
         </LinearLayout>
 
+        <include layout="@layout/playlist_navigation" />
+
         <ProgressBar
             android:id="@+id/pbProgress"
             style="?android:attr/progressBarStyleHorizontal"

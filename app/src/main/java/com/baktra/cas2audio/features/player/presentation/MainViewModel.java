@@ -70,6 +70,7 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private List<PlaylistEntry> playbackQueue = Collections.emptyList();
     private int playlistPosition;
+    private int playlistStartPosition;
     private int playbackGapSeconds;
     private boolean gapPending;
     private boolean cleared;
@@ -197,15 +198,39 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
         selectedPlaylist().entries.remove(position);
     }
 
+    void loadPlaylist() {
+        preparePlaylist(false);
+    }
+
     void startPlaylist() {
+        preparePlaylist(true);
+    }
+
+    private void preparePlaylist(boolean playImmediately) {
         List<PlaylistEntry> playlist = selectedPlaylist().entries;
         int gapSeconds = getPlaylistGapSeconds();
         if (gapSeconds < 0 || playlist.isEmpty() || isPlaying()
                 || Boolean.TRUE.equals(playlistLoading.getValue())) return;
+        if (!playImmediately && playbackQueue.equals(playlist) && playbackGapSeconds == gapSeconds) return;
+
+        int startPosition = 0;
+        if (!playImmediately && !playbackQueue.isEmpty()) {
+            startPosition = Math.max(0, playlist.indexOf(playbackQueue.get(playlistStartPosition)));
+        }
         playbackGapSeconds = gapSeconds;
         playbackQueue = new ArrayList<>(playlist);
-        playlistPosition = 0;
-        playPlaylistEntry();
+        playlistStartPosition = startPosition;
+        playlistPosition = startPosition;
+        selectPlaylistEntry(false);
+        if (playImmediately) startPlayback();
+    }
+
+    void changePlaylistPosition(int offset) {
+        int target = playlistPosition + offset;
+        if (isPlaying() || target < 0 || target >= playbackQueue.size()) return;
+        playlistStartPosition = target;
+        playlistPosition = target;
+        selectPlaylistEntry(false);
     }
 
     int getPlaylistPlaybackSize() {
@@ -216,16 +241,12 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
         return playlistPosition + 1;
     }
 
-    private void selectPlaylistEntry(PlayerState state) {
-        gapPending = playlistPosition > 0 && playbackGapSeconds > 0;
+    private void selectPlaylistEntry(boolean continuePlayback) {
+        gapPending = continuePlayback && playbackGapSeconds > 0;
         UIState old = uiState.getValue();
+        PlayerState state = continuePlayback ? PlayerState.PLAYING : PlayerState.TAPE_READY;
         uiState.setValue(new UIState(state, 0, 0, 0,
                 playbackQueue.get(playlistPosition).tape, old.chunkListVisible, AlertType.NONE, null));
-    }
-
-    private void playPlaylistEntry() {
-        selectPlaylistEntry(PlayerState.PLAYING);
-        prepareAndPlay();
     }
 
     enum PlayerState {
@@ -513,10 +534,11 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
         if (!playbackQueue.isEmpty()) {
             playlistPosition++;
             if (playlistPosition < playbackQueue.size()) {
-                playPlaylistEntry();
+                selectPlaylistEntry(true);
+                prepareAndPlay();
             } else {
-                playlistPosition = 0;
-                selectPlaylistEntry(PlayerState.TAPE_READY);
+                playlistPosition = playlistStartPosition;
+                selectPlaylistEntry(false);
             }
             return;
         }
@@ -537,8 +559,8 @@ public class MainViewModel extends ViewModel implements CasPlaybackObserver {
 
     public void onCancelledPlayback(int resIp, int stopReason) {
         if (!playbackQueue.isEmpty() && stopReason != STOP_REASON_PAUSE) {
-            playlistPosition = 0;
-            selectPlaylistEntry(PlayerState.TAPE_READY);
+            playlistPosition = playlistStartPosition;
+            selectPlaylistEntry(false);
             return;
         }
 

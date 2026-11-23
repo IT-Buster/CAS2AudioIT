@@ -107,13 +107,19 @@ public class MainActivity extends AppCompatActivity {
         viewModel = new ViewModelProvider(this, factory).get(MainViewModel.class);
         setupModelObservers();
 
+        findViewById(R.id.btnPlaylistPrevious).setOnClickListener(view -> viewModel.changePlaylistPosition(-1));
+        findViewById(R.id.btnPlaylistNext).setOnClickListener(view -> viewModel.changePlaylistPosition(1));
+
         /*Initialize launchers*/
         initializeLaunchers();
         launchPlaylistFiles = registerForActivityResult(
                 new ActivityResultContracts.OpenMultipleDocuments(), this::processPlaylistFiles);
         launchPlaylistGoldies = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(), this::processPlaylistGoldiesResult);
-        viewModel.getPlaylistLoading().observe(this, loading -> refreshPlaylist());
+        viewModel.getPlaylistLoading().observe(this, loading -> {
+            refreshPlaylist();
+            if (!loading) scrollPlaylistToEnd();
+        });
         if (savedInstanceState != null) {
             String systemCode = savedInstanceState.getString("playlist_system");
             for (TapeSystem system : TapeSystem.GOLDIES_SYSTEMS) {
@@ -255,10 +261,14 @@ public class MainActivity extends AppCompatActivity {
                 TapeImageCrate tape = newState.getCurrentTapeImageCrate();
                 TextView tapeName = findViewById(R.id.tvTapeImageName);
                 int queueSize = viewModel.getPlaylistPlaybackSize();
+                int queuePosition = viewModel.getPlaylistPlaybackPosition();
+                findViewById(R.id.playlistNavigation).setVisibility(queueSize > 1 ? View.VISIBLE : View.GONE);
+                findViewById(R.id.btnPlaylistPrevious).setEnabled(!isPlaying && queuePosition > 1);
+                findViewById(R.id.btnPlaylistNext).setEnabled(!isPlaying && queuePosition < queueSize);
                 String name = tape == null ? "" : tape.getFileName();
                 if (tape != null && queueSize > 0) {
                     name = getString(R.string.playlist_now_playing,
-                            viewModel.getPlaylistPlaybackPosition(), queueSize, name);
+                            queuePosition, queueSize, name);
                 }
                 if (!android.text.TextUtils.equals(tapeName.getText(), name)) {
                     tapeName.setText(name);
@@ -613,7 +623,7 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.playlist_title)
                 .setView(content)
                 .setNeutralButton(R.string.playlist_add, null)
-                .setNegativeButton(android.R.string.cancel, null)
+                .setNegativeButton(R.string.playlist_load, (dialog, which) -> viewModel.loadPlaylist())
                 .setPositiveButton(R.string.playlist_play, (dialog, which) -> viewModel.startPlaylist())
                 .create();
         playlistDialog.setOnDismissListener(dialog -> {
@@ -641,6 +651,13 @@ public class MainActivity extends AppCompatActivity {
         playlistDialog.getButton(AlertDialog.BUTTON_NEUTRAL)
                 .setOnClickListener(view -> choosePlaylistSource());
         refreshPlaylist();
+        scrollPlaylistToEnd();
+    }
+
+    private void scrollPlaylistToEnd() {
+        if (playlistRows != null && playlistRows.getCount() > 0) {
+            playlistRows.setSelection(playlistRows.getCount() - 1);
+        }
     }
 
     private EditText addPlaylistNumberField(LinearLayout fields, int labelId, String value,
@@ -743,8 +760,9 @@ public class MainActivity extends AppCompatActivity {
         if (playlistSummary == null) return;
         int gapSeconds = viewModel.getPlaylistGapSeconds();
         boolean loading = Boolean.TRUE.equals(viewModel.getPlaylistLoading().getValue());
-        playlistDialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setEnabled(!loading && !viewModel.getPlaylist().isEmpty() && gapSeconds >= 0);
+        boolean canLoadPlaylist = !loading && !viewModel.getPlaylist().isEmpty() && gapSeconds >= 0;
+        playlistDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(canLoadPlaylist);
+        playlistDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setEnabled(canLoadPlaylist);
         if (gapSeconds < 0) {
             playlistSummary.setText(R.string.playlist_gap_invalid);
             return;

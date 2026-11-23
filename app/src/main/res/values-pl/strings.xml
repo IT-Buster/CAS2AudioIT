@@ -68,4 +68,7 @@
     <string name="playlist_add_selected">Dodaj zaznaczone do playlisty</string>
     <string name="playlist_goldies_empty">Goldies nie zawiera plików dla tego systemu.</string>
     <string name="playlist_no_pwm">Brak danych turbo PWM w plikach: %1$s. Wybierz wersję turbo z Goldies.</string>
+    <string name="playlist_load">Wczytaj playlistę</string>
+    <string name="playlist_previous">Poprzedni</string>
+    <string name="playlist_next">Następny</string>
 </resources>

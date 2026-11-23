@@ -66,4 +66,7 @@
     <string name="playlist_add_selected">Přidat vybrané do seznamu</string>
     <string name="playlist_goldies_empty">Goldies neobsahuje soubory pro tento systém.</string>
     <string name="playlist_no_pwm">Soubory bez dat turbo PWM: %1$s. Vyberte verzi turbo z Goldies.</string>
+    <string name="playlist_load">Načíst seznam</string>
+    <string name="playlist_previous">Předchozí</string>
+    <string name="playlist_next">Další</string>
 </resources>
